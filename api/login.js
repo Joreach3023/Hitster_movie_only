@@ -16,11 +16,6 @@ function base64url(buffer) {
   return buffer.toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
 
-function encodeState(payload) {
-  const json = JSON.stringify(payload);
-  return base64url(Buffer.from(json, 'utf8'));
-}
-
 export default async function handler(req, res) {
   const { redirect_uri } = req.query;
   if (!CLIENT_ID || !redirect_uri) {
@@ -38,9 +33,9 @@ export default async function handler(req, res) {
     scope: SCOPES,
     redirect_uri: `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/callback`,
     code_challenge_method: 'S256',
-    code_challenge,
-    state: encodeState({ ret: redirect_uri })
+    code_challenge
   });
 
-  res.redirect(`${SPOTIFY_AUTH_URL}?${params.toString()}`);
+  const state = new URLSearchParams({ ret: redirect_uri }).toString();
+  res.redirect(`${SPOTIFY_AUTH_URL}?${params.toString()}&state=${encodeURIComponent(state)}`);
 }

@@ -31,7 +31,8 @@ function enable(el, on=true){ el.disabled = !on; }
 
 // OAuth step 1: redirect to /api/login
 loginBtn.addEventListener('click', () => {
-  window.location.href = `${API_BASE}/api/login?redirect_uri=${encodeURIComponent(window.location.href)}`;
+  const ret = window.location.href; // on revient ici après OAuth
+  window.location.href = `${API_BASE}/api/login?redirect_uri=${encodeURIComponent(ret)}`;
 });
 
 // After OAuth callback, our backend will redirect back to this page with ?token=...

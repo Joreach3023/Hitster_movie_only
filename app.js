@@ -84,20 +84,25 @@ playBtn.addEventListener('click', async () => {
   if (player && typeof player.activateElement === 'function' && !playerActivated) {
     try {
       await player.activateElement();
+      await player.setVolume(0.9);
       playerActivated = true;
     } catch (err) {
       console.error('Failed to activate Spotify player element', err);
-      setStatus('Tap allow audio to enable playback on this device.');
+      setStatus('Audio activation failed: ' + err.message);
       return;
     }
+  } else if (player && typeof player.setVolume === 'function') {
+    await player.setVolume(0.9);
   }
   setStatus('Playing...');
   // Transfer playback to this device and start URI
   await fetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type':'application/json' },
-    body: JSON.stringify({ device_ids: [deviceId], play: true })
+    body: JSON.stringify({ device_ids: [deviceId], play: false })
   });
+
+  await new Promise(r => setTimeout(r, 400));
 
   await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',

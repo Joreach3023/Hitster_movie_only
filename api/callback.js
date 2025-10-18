@@ -2,6 +2,18 @@
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 
+function decodeState(value) {
+  if (!value) return null;
+  try {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+    const json = Buffer.from(padded, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (err) {
+    console.error('Failed to decode state', err);
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const { code, state } = req.query;
@@ -35,13 +47,24 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', `cv=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
 
     // Read state to know where to go back
-    const stateParams = new URLSearchParams(state);
-    const ret = stateParams.get('ret') || '/';
+    const stateData = decodeState(state);
+    const ret = (stateData && typeof stateData.ret === 'string' && stateData.ret.trim()) ? stateData.ret : '/';
 
     // Pass access_token in URL (short session); in prod, set your own session
-    const url = new URL(ret);
-    url.searchParams.set('token', tokenJson.access_token);
-    res.redirect(url.toString());
+    let redirectTarget = ret;
+    try {
+      const url = new URL(ret);
+      url.searchParams.set('token', tokenJson.access_token);
+      redirectTarget = url.toString();
+    } catch (err) {
+      // ret may be relative; fallback to same host
+      const origin = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
+      const url = new URL(ret.startsWith('/') ? ret : `/${ret}`, origin);
+      url.searchParams.set('token', tokenJson.access_token);
+      redirectTarget = url.toString();
+    }
+
+    res.redirect(redirectTarget);
   } catch (e) {
     res.status(500).send('Callback error: ' + e.message);
   }

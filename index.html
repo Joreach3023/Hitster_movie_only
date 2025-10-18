@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="./style.css" />
   <script src="https://sdk.scdn.co/spotify-player.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 </head>
 <body>
   <main class="wrap">
@@ -29,6 +30,16 @@
         <div id="year"></div>
       </div>
     </div>
+
+    <section class="scanner">
+      <h2>Scanner un QR</h2>
+      <p class="scanner-hint">Utilisez la caméra du téléphone pour charger un nouveau titre sans changer de page.</p>
+      <button id="scanToggleBtn" class="btn">Activer le scanner</button>
+      <div id="scanArea" class="scan-area" hidden>
+        <video id="scanVideo" muted playsinline></video>
+        <div id="scanStatus" class="scanner-status">Cadrez le QR Hitster dans le cadre.</div>
+      </div>
+    </section>
 
     <p class="hint">
       Scan a QR that links to:<br />

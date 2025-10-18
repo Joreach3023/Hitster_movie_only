@@ -5,6 +5,17 @@ const TRACKS_JSON = './tracks.json'; // mapping { "spotify:track:...": {title, y
 // ------- State -------
 const TOKEN_STORAGE_KEY = 'spotify_access_token';
 
+const storage = (() => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
+    }
+  } catch (err) {
+    // localStorage unavailable (server-side / private mode)
+  }
+  return null;
+})();
+
 let accessToken = null;
 let deviceId = null;
 let player = null;
@@ -22,7 +33,6 @@ const statusEl = document.getElementById('status');
 const loginBtn = document.getElementById('loginBtn');
 const playBtn = document.getElementById('playBtn');
 const revealBtn = document.getElementById('revealBtn');
-const nextBtn = document.getElementById('nextBtn');
 const timerEl = document.getElementById('timer');
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
@@ -43,16 +53,20 @@ const urlParams = new URLSearchParams(window.location.search);
 const tokenFromHash = urlParams.get('token');
 if (tokenFromHash) {
   accessToken = tokenFromHash;
-  localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+  if (storage) {
+    storage.setItem(TOKEN_STORAGE_KEY, accessToken);
+  }
   urlParams.delete('token');
   const newUrl = `${window.location.pathname}?${urlParams.toString()}`.replace(/[?&]$/, '');
   window.history.replaceState({}, document.title, newUrl);
 }
 
 if (!accessToken) {
-  const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (storedToken) {
-    accessToken = storedToken;
+  if (storage) {
+    const storedToken = storage.getItem(TOKEN_STORAGE_KEY);
+    if (storedToken) {
+      accessToken = storedToken;
+    }
   }
 }
 
@@ -60,7 +74,6 @@ if (accessToken) {
   setStatus('Authenticated with Spotify.');
   enable(playBtn, true);
   enable(revealBtn, true);
-  enable(nextBtn, true);
 }
 
 // Initialize Spotify Web Playback SDK
@@ -84,11 +97,12 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   player.addListener('initialization_error', ({ message }) => setStatus('Init error: ' + message));
   player.addListener('authentication_error', ({ message }) => {
     setStatus('Auth error: ' + message);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    if (storage) {
+      storage.removeItem(TOKEN_STORAGE_KEY);
+    }
     accessToken = null;
     enable(playBtn, false);
     enable(revealBtn, false);
-    enable(nextBtn, false);
   });
   player.addListener('account_error', ({ message }) => setStatus('Account error: ' + message));
 
@@ -167,8 +181,3 @@ revealBtn.addEventListener('click', async () => {
   }
 });
 
-// Optional: Next track via URL param substitution (for your QR list)
-nextBtn.addEventListener('click', () => {
-  // Implement your own rotation logic or just show a message
-  setStatus('Scan the next QR code!');
-});

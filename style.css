@@ -201,59 +201,6 @@ code {
   box-shadow: 0 0 14px rgba(75, 255, 239, 0.2);
 }
 
-.scanner {
-  margin-top: 32px;
-  padding: 24px 22px;
-  border-radius: 20px;
-  background: rgba(8, 12, 28, 0.7);
-  border: 1px solid rgba(75, 255, 239, 0.25);
-  box-shadow: inset 0 0 24px rgba(10, 18, 42, 0.7);
-  display: grid;
-  gap: 14px;
-}
-
-.scanner h2 {
-  margin: 0;
-  font-size: 16px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--cyan);
-}
-
-.scanner-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.scanner .btn {
-  justify-self: center;
-  min-width: 220px;
-}
-
-.scan-area {
-  display: grid;
-  gap: 12px;
-}
-
-.scan-area video {
-  width: 100%;
-  max-height: 320px;
-  border-radius: 16px;
-  border: 1px solid rgba(75, 255, 239, 0.35);
-  background: rgba(0, 0, 0, 0.85);
-  object-fit: cover;
-  box-shadow: 0 0 24px rgba(75, 255, 239, 0.2);
-}
-
-.scanner-status {
-  font-size: 12px;
-  color: var(--muted);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;

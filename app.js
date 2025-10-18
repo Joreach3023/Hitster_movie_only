@@ -44,18 +44,7 @@ const scanStatusEl = document.getElementById('scanStatus');
 
 // ------- Helpers -------
 function setStatus(msg){ statusEl.textContent = msg; }
-function enable(el, on = true) {
-  if (!el) return;
-  if (on) {
-    el.disabled = false;
-    el.removeAttribute('disabled');
-    el.removeAttribute('aria-disabled');
-  } else {
-    el.disabled = true;
-    el.setAttribute('disabled', '');
-    el.setAttribute('aria-disabled', 'true');
-  }
-}
+function enable(el, on=true){ el.disabled = !on; }
 
 function updateTrackQueryParam(uri) {
   const params = new URLSearchParams(window.location.search);

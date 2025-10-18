@@ -19,13 +19,9 @@
    Tu reviendras avec `?token=...` dans l’URL (auth OK).
 
 ## Générer des QR
-- Installer les dépendances: `npm install`
-- Générer les images PNG avec: `npm run generate:qr -- https://<username>.github.io/hitster-geek/`
-  - Le script crée un dossier `qr-codes/` avec un fichier par morceau listé dans `tracks.json`.
-  - Tu peux aussi définir la base via la variable d’environnement `HITSTER_QR_BASE`.
-- Format de lien utilisé dans chaque QR:
+- Format de lien:  
   `https://<username>.github.io/hitster-geek/?t=spotify:track:<TRACK_ID>`
-- Exemple d’URL générée:
+- Exemple:
   `https://yourname.github.io/hitster-geek/?t=spotify:track:7a9UUo3zfID7Ik2fTQjRLi`
 
 ## Remplir les métadonnées (Reveal)

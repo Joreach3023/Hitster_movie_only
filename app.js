@@ -1,5 +1,5 @@
 // ------- Config -------
-const API_BASE = 'https://<your-vercel-project>.vercel.app'; // ex: https://hitster-geek.vercel.app
+const API_BASE = 'https://hitster-jordan-oexi.vercel.vercel.app'; // ex: https://hitster-geek.vercel.app
 const TRACKS_JSON = './tracks.json'; // mapping { "spotify:track:...": {title, year} }
 
 // ------- State -------

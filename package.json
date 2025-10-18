@@ -3,14 +3,16 @@
   "version": "1.0.0",
   "description": "- Compte **Spotify Premium** (DJ) - **Spotify Developer**: créer une app et récupérer `Client ID` - **Vercel** (gratuit) pour le backend OAuth - **GitHub Pages** pour le frontend",
   "main": "app.js",
-  "scripts": {
-    "test": "node tests/player-activation.test.js"
-  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "jsdom": "^22.1.0"
+    "jsdom": "^22.1.0",
+    "qrcode": "^1.5.3"
+  },
+  "scripts": {
+    "test": "node tests/player-activation.test.js",
+    "generate:qr": "node scripts/generate-qr.js"
   }
 }

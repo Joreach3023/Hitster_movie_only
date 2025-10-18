@@ -6,6 +6,7 @@ const TRACKS_JSON = './tracks.json'; // mapping { "spotify:track:...": {title, y
 let accessToken = null;
 let deviceId = null;
 let player = null;
+let playerActivated = false;
 let currentUri = null;
 let countdown = 30;
 let timerHandle = null;
@@ -79,6 +80,16 @@ playBtn.addEventListener('click', async () => {
   if (!currentUri) {
     setStatus('No track URI (?t=spotify:track:...)');
     return;
+  }
+  if (player && typeof player.activateElement === 'function' && !playerActivated) {
+    try {
+      await player.activateElement();
+      playerActivated = true;
+    } catch (err) {
+      console.error('Failed to activate Spotify player element', err);
+      setStatus('Tap allow audio to enable playback on this device.');
+      return;
+    }
   }
   setStatus('Playing...');
   // Transfer playback to this device and start URI

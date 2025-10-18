@@ -10,9 +10,6 @@ let playerActivated = false;
 let currentUri = null;
 let countdown = 30;
 let timerHandle = null;
-let scannerStream = null;
-let scanLoopHandle = null;
-let barcodeDetector = null;
 
 const qs = new URLSearchParams(location.search);
 const paramUri = qs.get('t'); // spotify:track:...
@@ -24,14 +21,10 @@ const loginBtn = document.getElementById('loginBtn');
 const playBtn = document.getElementById('playBtn');
 const revealBtn = document.getElementById('revealBtn');
 const nextBtn = document.getElementById('nextBtn');
-const scanBtn = document.getElementById('scanBtn');
 const timerEl = document.getElementById('timer');
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
 const yearEl  = document.getElementById('year');
-const scannerOverlay = document.getElementById('scannerOverlay');
-const scannerVideo = document.getElementById('scannerVideo');
-const closeScannerBtn = document.getElementById('closeScannerBtn');
 
 // ------- Helpers -------
 function setStatus(msg){ statusEl.textContent = msg; }
@@ -155,96 +148,3 @@ nextBtn.addEventListener('click', () => {
   // Implement your own rotation logic or just show a message
   setStatus('Scan the next QR code!');
 });
-
-if (scanBtn) {
-  scanBtn.addEventListener('click', async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Votre navigateur ne supporte pas l\'accès caméra pour le scan.');
-      return;
-    }
-    await openScanner();
-  });
-}
-
-if (closeScannerBtn) {
-  closeScannerBtn.addEventListener('click', () => {
-    stopScanner();
-    setStatus('Scanner fermé.');
-  });
-}
-
-async function openScanner(){
-  if (!scannerOverlay || !scannerVideo) {
-    setStatus('Scanner indisponible sur cet appareil.');
-    return;
-  }
-  try {
-    if (!scannerStream) {
-      scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    }
-    scannerVideo.srcObject = scannerStream;
-    await scannerVideo.play().catch(() => {});
-    scannerOverlay.hidden = false;
-    if (document && document.body) {
-      document.body.style.overflow = 'hidden';
-    }
-    setStatus('Scanner actif. Cadrez votre QR Hitster Geek.');
-
-    if ('BarcodeDetector' in window) {
-      barcodeDetector = barcodeDetector || new window.BarcodeDetector({ formats: ['qr_code'] });
-      startScanLoop();
-    } else {
-      setStatus('Scanner actif. Scannez et le lien s\'ouvrira automatiquement (nécessite support navigateur).');
-    }
-  } catch (err) {
-    console.error('Unable to start scanner', err);
-    setStatus('Impossible d\'accéder à la caméra. Vérifiez les permissions.');
-    stopScanner();
-  }
-}
-
-function startScanLoop(){
-  if (!barcodeDetector) return;
-  const detect = async () => {
-    if (scannerVideo.readyState >= 2) {
-      try {
-        const barcodes = await barcodeDetector.detect(scannerVideo);
-        if (barcodes && barcodes.length) {
-          const value = barcodes[0].rawValue || barcodes[0].rawData || '';
-          if (value) {
-            stopScanner();
-            setStatus('QR détecté. Chargement...');
-            window.location.href = value;
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('Barcode detection failed', err);
-      }
-    }
-    scanLoopHandle = requestAnimationFrame(detect);
-  };
-  cancelAnimationFrame(scanLoopHandle);
-  scanLoopHandle = requestAnimationFrame(detect);
-}
-
-function stopScanner(){
-  if (scannerOverlay) {
-    scannerOverlay.hidden = true;
-  }
-  if (document && document.body) {
-    document.body.style.overflow = '';
-  }
-  if (scanLoopHandle) {
-    cancelAnimationFrame(scanLoopHandle);
-    scanLoopHandle = null;
-  }
-  if (scannerVideo) {
-    scannerVideo.pause();
-    scannerVideo.srcObject = null;
-  }
-  if (scannerStream) {
-    scannerStream.getTracks().forEach(track => track.stop());
-    scannerStream = null;
-  }
-}

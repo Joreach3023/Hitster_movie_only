@@ -3,8 +3,6 @@ const API_BASE = 'https://hitster-jordan-oexi.vercel.app'; // ex: https://hitste
 const TRACKS_JSON = './tracks.json'; // mapping { "spotify:track:...": {title, year} }
 
 // ------- State -------
-const TOKEN_STORAGE_KEY = 'spotify_access_token';
-
 let accessToken = null;
 let deviceId = null;
 let player = null;
@@ -39,24 +37,9 @@ loginBtn.addEventListener('click', () => {
 });
 
 // After OAuth callback, our backend will redirect back to this page with ?token=...
-const urlParams = new URLSearchParams(window.location.search);
-const tokenFromHash = urlParams.get('token');
+const tokenFromHash = new URLSearchParams(window.location.search).get('token');
 if (tokenFromHash) {
   accessToken = tokenFromHash;
-  localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
-  urlParams.delete('token');
-  const newUrl = `${window.location.pathname}?${urlParams.toString()}`.replace(/[?&]$/, '');
-  window.history.replaceState({}, document.title, newUrl);
-}
-
-if (!accessToken) {
-  const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (storedToken) {
-    accessToken = storedToken;
-  }
-}
-
-if (accessToken) {
   setStatus('Authenticated with Spotify.');
   enable(playBtn, true);
   enable(revealBtn, true);
@@ -82,14 +65,7 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   });
 
   player.addListener('initialization_error', ({ message }) => setStatus('Init error: ' + message));
-  player.addListener('authentication_error', ({ message }) => {
-    setStatus('Auth error: ' + message);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    accessToken = null;
-    enable(playBtn, false);
-    enable(revealBtn, false);
-    enable(nextBtn, false);
-  });
+  player.addListener('authentication_error', ({ message }) => setStatus('Auth error: ' + message));
   player.addListener('account_error', ({ message }) => setStatus('Account error: ' + message));
 
   player.connect();

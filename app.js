@@ -37,10 +37,71 @@ const timerEl = document.getElementById('timer');
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
 const yearEl  = document.getElementById('year');
+const scanToggleBtn = document.getElementById('scanToggleBtn');
+const scanArea = document.getElementById('scanArea');
+const scanVideo = document.getElementById('scanVideo');
+const scanStatusEl = document.getElementById('scanStatus');
 
 // ------- Helpers -------
 function setStatus(msg){ statusEl.textContent = msg; }
 function enable(el, on=true){ el.disabled = !on; }
+
+function updateTrackQueryParam(uri) {
+  const params = new URLSearchParams(window.location.search);
+  if (uri) {
+    params.set('t', uri);
+  } else {
+    params.delete('t');
+  }
+  const qsStr = params.toString();
+  const newUrl = `${window.location.pathname}${qsStr ? `?${qsStr}` : ''}`;
+  window.history.replaceState({}, document.title, newUrl);
+}
+
+function applyScannedTrack(uri) {
+  currentUri = uri;
+  updateTrackQueryParam(currentUri);
+  if (revealBox) {
+    revealBox.hidden = true;
+  }
+  clearInterval(timerHandle);
+  timerHandle = null;
+  countdown = 30;
+  if (timerEl) {
+    timerEl.textContent = countdown;
+  }
+  if (accessToken && playBtn) {
+    enable(playBtn, true);
+  }
+  if (revealBtn && accessToken) {
+    enable(revealBtn, true);
+  }
+  const message = accessToken ? 'QR scanné. Appuyez sur Play pour écouter.' : 'QR scanné. Connectez-vous pour écouter.';
+  setStatus(message);
+}
+
+function extractTrackUri(value) {
+  if (!value) return null;
+  const text = value.trim();
+  if (!text) return null;
+  if (text.startsWith('spotify:track:')) {
+    return text;
+  }
+  try {
+    const maybeUrl = new URL(text);
+    const viaParam = maybeUrl.searchParams.get('t');
+    if (viaParam) {
+      return decodeURIComponent(viaParam);
+    }
+  } catch (err) {
+    // not an URL, ignore
+  }
+  const match = text.match(/spotify:track:[A-Za-z0-9]+/);
+  if (match) {
+    return match[0];
+  }
+  return null;
+}
 
 // OAuth step 1: redirect to /api/login
 loginBtn.addEventListener('click', () => {
@@ -166,6 +227,134 @@ playBtn.addEventListener('click', async () => {
     }
   }, 1000);
 });
+
+if (scanToggleBtn && scanArea && scanVideo && scanStatusEl) {
+  const scanCanvas = document.createElement('canvas');
+  const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+  let scanStream = null;
+  let scanningActive = false;
+
+  const resetScannerMessage = () => {
+    scanStatusEl.textContent = 'Cadrez le QR Hitster dans le cadre.';
+  };
+
+  const updateScanButton = () => {
+    if (!scanToggleBtn) return;
+    scanToggleBtn.textContent = scanningActive ? 'Arrêter le scanner' : 'Activer le scanner';
+  };
+
+  const stopScanner = (hideArea = true) => {
+    if (scanStream) {
+      scanStream.getTracks().forEach(track => track.stop());
+      scanStream = null;
+    }
+    scanningActive = false;
+    if (scanVideo) {
+      scanVideo.srcObject = null;
+    }
+    if (scanArea) {
+      scanArea.hidden = !!hideArea;
+    }
+    if (scanToggleBtn) {
+      scanToggleBtn.disabled = false;
+    }
+    updateScanButton();
+  };
+
+  const scanLoop = () => {
+    if (!scanningActive) {
+      return;
+    }
+    if (!scanCtx) {
+      stopScanner(false);
+      scanStatusEl.textContent = 'Scanner indisponible sur ce périphérique.';
+      return;
+    }
+    if (!window.jsQR) {
+      scanStatusEl.textContent = 'Lecteur QR indisponible sur ce navigateur.';
+      stopScanner(false);
+      return;
+    }
+    if (scanVideo.readyState === scanVideo.HAVE_ENOUGH_DATA) {
+      scanCanvas.width = scanVideo.videoWidth;
+      scanCanvas.height = scanVideo.videoHeight;
+      scanCtx.drawImage(scanVideo, 0, 0, scanCanvas.width, scanCanvas.height);
+      const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+      const result = window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+      if (result && result.data) {
+        const uri = extractTrackUri(result.data);
+        if (uri) {
+          stopScanner();
+          applyScannedTrack(uri);
+          return;
+        }
+        scanStatusEl.textContent = 'QR non reconnu. Réessayez.';
+      }
+    }
+    requestAnimationFrame(scanLoop);
+  };
+
+  const startScanner = async () => {
+    if (scanningActive) {
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      scanArea.hidden = false;
+      scanStatusEl.textContent = 'Caméra non disponible sur ce navigateur.';
+      return;
+    }
+    if (!scanCtx) {
+      scanArea.hidden = false;
+      scanStatusEl.textContent = 'Scanner indisponible sur ce périphérique.';
+      return;
+    }
+    try {
+      scanToggleBtn.disabled = true;
+      scanArea.hidden = false;
+      scanStatusEl.textContent = 'Initialisation du scanner...';
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      scanStream = stream;
+      scanVideo.srcObject = stream;
+      scanVideo.setAttribute('playsinline', 'true');
+      scanVideo.muted = true;
+      await scanVideo.play();
+      scanningActive = true;
+      scanToggleBtn.disabled = false;
+      resetScannerMessage();
+      updateScanButton();
+      requestAnimationFrame(scanLoop);
+    } catch (err) {
+      console.error('Failed to start scanner', err);
+      scanToggleBtn.disabled = false;
+      scanArea.hidden = false;
+      scanStatusEl.textContent = 'Accès caméra refusé ou indisponible.';
+      stopScanner(false);
+      setStatus('Autorisez la caméra pour scanner des QR.');
+    }
+  };
+
+  scanToggleBtn.addEventListener('click', () => {
+    if (scanningActive) {
+      stopScanner();
+    } else {
+      startScanner();
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    if (scanningActive) {
+      stopScanner();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && scanningActive) {
+      stopScanner();
+    }
+  });
+
+  updateScanButton();
+}
 
 // Reveal from local mapping (no Spotify metadata shown before)
 revealBtn.addEventListener('click', async () => {

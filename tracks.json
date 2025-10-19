@@ -1,13 +1,39 @@
 {
-  "spotify:track:0u5HIIPuMPQGsSLL1f2nC3": { "title": "Star Wars: Main Title — John Williams", "year": 1977 },
-  "spotify:track:3LRLoyyVtxPrwCieG2Gfo6": { "title": "Raiders March (Indiana Jones) — John Williams", "year": 1981 },
-  "spotify:track:4AJ1sZOZrHMqQRUgshsGBq": { "title": "Star Wars: Main Title (Alt. Edition) — John Williams", "year": 1977 },
-  "spotify:track:6QmMCtfu6uHG1TbWHe0H7G": { "title": "Raiders March (2014 Edition) — John Williams", "year": 1981 },
-  "spotify:track:5D7v4MCfh4pEZv5aQmd3WR": { "title": "Star Wars (Main Theme) — John Williams / LSO", "year": 1977 },
-  "spotify:track:2VIrtSYJrAw0429w3vY8Sg": { "title": "Star Wars: Main Title (2015) — John Williams", "year": 1977 },
-  "spotify:track:2yMN0IP5yVhRZHZCkZ5akq": { "title": "Back to the Future: Main Title — Alan Silvestri", "year": 1985 },
-  "spotify:track:1Vj2v3z8RQXhZ2gGQ1uK3U": { "title": "Top Gun: Danger Zone — Kenny Loggins", "year": 1986 },
-  "spotify:track:6b2oQwSGFkzsMtQruIWm2p": { "title": "Pulp Fiction: Misirlou — Dick Dale", "year": 1994 }
+  "spotify:track:2bw4WgXyXP90hIex7ur58y": {
+    "title": "Star Wars – The Imperial March (Darth Vader's Theme)",
+    "year": 1980
+  },
+  "spotify:track:6pWgRkpqVfxnj3WuIcJ7WP": {
+    "title": "Interstellar – Cornfield Chase",
+    "year": 2014
+  },
+  "spotify:track:1SJ2ndZrIfBttZ9UfF3YS0": {
+    "title": "Halo – Halo Theme Mjolnir Mix",
+    "year": 2004
+  },
+  "spotify:track:4AP6ZBENoFMtVXIcgKEV2V": {
+    "title": "The Last of Us – Main Theme",
+    "year": 2014
+  },
+  "spotify:track:08QaHlMPWuO5PUxjl61bXn": {
+    "title": "Pirates of the Caribbean – He's a Pirate",
+    "year": 2003
+  },
+  "spotify:track:2TZbQZXOuR8osP2AK8yYMN": {
+    "title": "Jurassic Park – Theme From Jurassic Park",
+    "year": 1993
+  },
+  "spotify:track:5SXsXjVJCWeJuf7FHvgBYR": {
+    "title": "The Avengers – The Avengers",
+    "year": 2012
+  },
+  "spotify:track:1NkI8DtCnjcWVCVLF0gB71": {
+    "title": "The Batman – The Batman",
+    "year": 2022
+  },
+  "spotify:track:6ZMwwuUOx8kefl32gWOjtY": {
+    "title": "God of War – God of War",
+    "year": 2018
+  }
 }
-
 

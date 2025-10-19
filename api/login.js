@@ -16,6 +16,22 @@ function base64url(buffer) {
   return buffer.toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
 
+function isSecureRequest(req) {
+  const protoHeader = req.headers['x-forwarded-proto'];
+  if (protoHeader) {
+    return protoHeader.split(',')[0] === 'https';
+  }
+  if (req.protocol) {
+    return req.protocol === 'https';
+  }
+  const host = (req.headers['host'] || '').toLowerCase();
+  if (host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]')) {
+    return false;
+  }
+  // Default to non-secure when protocol cannot be determined.
+  return false;
+}
+
 export default async function handler(req, res) {
   const { redirect_uri } = req.query;
   if (!CLIENT_ID || !redirect_uri) {
@@ -25,7 +41,11 @@ export default async function handler(req, res) {
   const code_challenge = base64url(crypto.createHash('sha256').update(code_verifier).digest());
 
   // Store verifier in a short-lived cookie
-  res.setHeader('Set-Cookie', `cv=${code_verifier}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`);
+  const cookieParts = [`cv=${code_verifier}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=600'];
+  if (isSecureRequest(req)) {
+    cookieParts.push('Secure');
+  }
+  res.setHeader('Set-Cookie', cookieParts.join('; '));
 
   const params = new URLSearchParams({
     response_type: 'code',

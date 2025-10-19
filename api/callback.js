@@ -2,6 +2,22 @@
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 
+function isSecureRequest(req) {
+  const protoHeader = req.headers['x-forwarded-proto'];
+  if (protoHeader) {
+    return protoHeader.split(',')[0] === 'https';
+  }
+  if (req.protocol) {
+    return req.protocol === 'https';
+  }
+  const host = (req.headers['host'] || '').toLowerCase();
+  if (host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]')) {
+    return false;
+  }
+  // Default to non-secure when protocol cannot be determined.
+  return false;
+}
+
 export default async function handler(req, res) {
   try {
     const { code, state } = req.query;
@@ -32,7 +48,11 @@ export default async function handler(req, res) {
     }
 
     // Clear cookie
-    res.setHeader('Set-Cookie', `cv=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+    const cookieParts = ['cv=', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+    if (isSecureRequest(req)) {
+      cookieParts.push('Secure');
+    }
+    res.setHeader('Set-Cookie', cookieParts.join('; '));
 
     // Read state to know where to go back
     const stateParams = new URLSearchParams(state);

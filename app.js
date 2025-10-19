@@ -11,9 +11,36 @@ let currentUri = null;
 let countdown = 30;
 let timerHandle = null;
 
+const STORAGE_TOKEN_KEY = 'hitster:spotify_access_token';
+const STORAGE_URI_KEY = 'hitster:last_track_uri';
+const CHANNEL_NAME = 'hitster:track_channel';
+
+const storage = (() => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
+    }
+    if (typeof localStorage !== 'undefined') {
+      return localStorage;
+    }
+  } catch (err) {
+    console.warn('localStorage unavailable', err);
+  }
+  return null;
+})();
+
 const qs = new URLSearchParams(location.search);
 const paramUri = qs.get('t'); // spotify:track:...
 if (paramUri) currentUri = decodeURIComponent(paramUri);
+
+let trackChannel = null;
+try {
+  if (typeof BroadcastChannel !== 'undefined') {
+    trackChannel = new BroadcastChannel(CHANNEL_NAME);
+  }
+} catch (err) {
+  console.warn('BroadcastChannel not available', err);
+}
 
 // ------- UI refs -------
 const statusEl = document.getElementById('status');
@@ -33,17 +60,94 @@ function enable(el, on=true){ el.disabled = !on; }
 // OAuth step 1: redirect to /api/login
 loginBtn.addEventListener('click', () => {
   const ret = window.location.href; // on revient ici après OAuth
-  window.location.href = `${API_BASE}/api/login?redirect_uri=${encodeURIComponent(ret)}`;
+  window.location.replace(`${API_BASE}/api/login?redirect_uri=${encodeURIComponent(ret)}`);
 });
 
 // After OAuth callback, our backend will redirect back to this page with ?token=...
 const tokenFromHash = new URLSearchParams(window.location.search).get('token');
 if (tokenFromHash) {
   accessToken = tokenFromHash;
+  if (storage) {
+    storage.setItem(STORAGE_TOKEN_KEY, accessToken);
+  }
+  const currentUrl = (typeof window !== 'undefined' && typeof window.URL !== 'undefined')
+    ? new window.URL(window.location.href)
+    : null;
+  if (currentUrl) {
+    currentUrl.searchParams.delete('token');
+    window.history.replaceState({}, document.title, currentUrl.toString());
+  }
   setStatus('Authenticated with Spotify.');
   enable(playBtn, true);
   enable(revealBtn, true);
   enable(nextBtn, true);
+} else {
+  const storedToken = storage ? storage.getItem(STORAGE_TOKEN_KEY) : null;
+  if (storedToken) {
+    accessToken = storedToken;
+    setStatus('Session Spotify restaurée.');
+    enable(playBtn, true);
+    enable(revealBtn, true);
+    enable(nextBtn, true);
+  }
+}
+
+function broadcastUri(uri) {
+  if (!uri) return;
+  if (trackChannel) {
+    try {
+      trackChannel.postMessage({ type: 'uri', uri });
+    } catch (err) {
+      console.warn('Unable to broadcast track via channel', err);
+    }
+  }
+}
+
+function setCurrentUri(uri, { source = 'direct', announce = true } = {}) {
+  if (!uri) return;
+  if (source !== 'direct' && uri === currentUri) {
+    return;
+  }
+  currentUri = uri;
+  if (source !== 'storage') {
+    if (storage) {
+      storage.setItem(STORAGE_URI_KEY, currentUri);
+    }
+  }
+  if (source !== 'broadcast') {
+    broadcastUri(currentUri);
+  }
+  revealBox.hidden = true;
+  titleEl.textContent = '';
+  yearEl.textContent = '';
+  if (announce) {
+    setStatus('Titre prêt. Appuyez sur Play quand vous êtes prêts.');
+  }
+}
+
+if (currentUri) {
+  setCurrentUri(currentUri, { source: 'direct' });
+} else {
+  const storedUri = storage ? storage.getItem(STORAGE_URI_KEY) : null;
+  if (storedUri) {
+    setCurrentUri(storedUri, { source: 'storage', announce: false });
+  }
+}
+
+if (trackChannel) {
+  trackChannel.onmessage = (event) => {
+    if (event?.data?.type === 'uri' && event.data.uri) {
+      setCurrentUri(event.data.uri, { source: 'broadcast' });
+    }
+  };
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('storage', (event) => {
+    if (event.key === STORAGE_URI_KEY && event.newValue) {
+      setCurrentUri(event.newValue, { source: 'storage' });
+    }
+  });
 }
 
 // Initialize Spotify Web Playback SDK
@@ -65,7 +169,16 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   });
 
   player.addListener('initialization_error', ({ message }) => setStatus('Init error: ' + message));
-  player.addListener('authentication_error', ({ message }) => setStatus('Auth error: ' + message));
+  player.addListener('authentication_error', ({ message }) => {
+    setStatus('Auth error: ' + message + '. Merci de vous reconnecter.');
+    if (storage) {
+      storage.removeItem(STORAGE_TOKEN_KEY);
+    }
+    accessToken = null;
+    enable(playBtn, false);
+    enable(revealBtn, false);
+    enable(nextBtn, false);
+  });
   player.addListener('account_error', ({ message }) => setStatus('Account error: ' + message));
 
   player.connect();

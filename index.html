@@ -36,12 +36,27 @@
       </div>
     </div>
 
+    <!-- Scanner QR intégré -->
+    <section class="scanner">
+      <button id="openScannerBtn">Scan QR</button>
+      <div id="scannerPane" hidden>
+        <div class="scanner-bar">
+          <button id="closeScannerBtn">Fermer</button>
+          <span id="scannerStatus">Caméra en attente…</span>
+        </div>
+        <video id="qrVideo" playsinline muted></video>
+        <canvas id="qrCanvas" style="display:none;"></canvas>
+      </div>
+    </section>
+
     <p class="hint">
       Scan a QR that links to:<br />
       <code>https://your-github-username.github.io/hitster-geek/?t=spotify:track:6ZFbXIJkuI1dVNWvzJzown</code>
     </p>
   </main>
 
+  <!-- Librairie de décodage QR -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

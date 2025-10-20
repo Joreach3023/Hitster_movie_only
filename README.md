@@ -1,33 +1,61 @@
-# Hitster Geek – Hidden Spotify Player
+## 🔊 Lecture côté serveur (mode DJ, sans login du scanneur)
 
-## Prérequis
-- Compte **Spotify Premium** (DJ)
-- **Spotify Developer**: créer une app et récupérer `Client ID`
-- **Vercel** (gratuit) pour le backend OAuth
-- **GitHub Pages** pour le frontend
+Ce mode permet à **toute personne qui scanne une carte** de déclencher la lecture **sur le compte Spotify du DJ** (ton compte), **sans** que la personne ait à se connecter.  
+Techniquement, on appelle des **routes API Vercel** qui utilisent un **refresh token** Spotify pour contrôler la lecture.
 
-## Déploiement
-1. Fork/clone ce repo.
-2. Sur **Vercel**: “Import Project” → sélectionne ce repo.
-   - Vars: `SPOTIFY_CLIENT_ID=<ton id>`
-   - Déploie → note l’URL: `https://<project>.vercel.app`
-3. Dans **Spotify Dashboard**, ajoute `https://<project>.vercel.app/api/callback` comme Redirect URI.
-4. Sur **GitHub**:
-   - Settings → Pages → Deploy from branch → `main` → `/ (root)` → Save
-   - Ton site: `https://<username>.github.io/hitster-geek/`
-5. Ouvre `index.html` sur GitHub Pages, clique **Login with Spotify**.  
-   Tu reviendras avec `?token=...` dans l’URL (auth OK).
+### 📁 Fichiers d’API à créer (dans la racine du repo)
 
-## Générer des QR
-- Format de lien:  
-  `https://<username>.github.io/hitster-geek/?t=spotify:track:<TRACK_ID>`
-- Exemple:
-  `https://yourname.github.io/hitster-geek/?t=spotify:track:7a9UUo3zfID7Ik2fTQjRLi`
+Créer le dossier `api/` avec ces fichiers :
 
-## Remplir les métadonnées (Reveal)
-- Édite `tracks.json` et ajoute tes 200 entrées:
-```json
-{
-  "spotify:track:TRACKID": { "title": "Name", "year": 2010 }
-}
+- `api/login.js` – lance l’auth Spotify (one-time, pour récupérer le refresh token)
+- `api/callback.js` – reçoit `code` → échange contre `access_token` + `refresh_token`
+- `api/devices.js` – liste les appareils disponibles (pour choisir un `device_id`)
+- `api/play.js` – **endpoint appelé par le QR** (joue `spotify:track:<ID>` sur ton appareil)
+
+> Voir le code dans ce repo (section `api/`). Si tu ne les vois pas sur ta branche, crée-les via **Add file → Create new file** sur GitHub et colle le contenu fourni.
+
+---
+
+### 🌱 Variables d’environnement (Vercel → Project → Settings → Environment Variables)
+
+| Nom                       | Valeur / Exemple                                             | Obligatoire |
+|--------------------------|---------------------------------------------------------------|-------------|
+| `SPOTIFY_CLIENT_ID`      | depuis le **Spotify Developer Dashboard**                    | ✅          |
+| `SPOTIFY_CLIENT_SECRET`  | depuis le **Spotify Developer Dashboard**                    | ✅          |
+| `SPOTIFY_REDIRECT_URI`   | `https://<TON-PROJET>.vercel.app/api/callback`               | ✅          |
+| `SPOTIFY_REFRESH_TOKEN`  | (à récupérer avec le flow ci-dessous)                        | ✅          |
+| `SPOTIFY_DEVICE_ID`      | `xxxxxxxxxxxxxxxxxxxxxxx` (id de l’appareil DJ par défaut)   | ➕ conseillé |
+| `SPOTIFY_MARKET`         | `CA` *(ou `US`, etc. — utile pour certaines régions)*        | ➖ optionnel |
+
+Remplace `<TON-PROJET>` par le nom réel de ton projet (ex. `hitster-jordan`).  
+Exemple : `https://hitster-jordan.vercel.app/api/callback`.
+
+---
+
+### 🔐 Obtenir le `SPOTIFY_REFRESH_TOKEN` (one-time)
+
+> À faire **une seule fois**, connecté sur **TON compte DJ** dans le navigateur.
+
+1. Déploie le projet sur Vercel (les fichiers `/api/*.js` doivent exister).
+2. Ouvre `https://<TON-PROJET>.vercel.app/api/login`  
+   → accepte les permissions Spotify (scopes lecture/contrôle).
+3. Spotify redirige vers `.../api/callback` et **affiche** le `refresh_token`.
+4. Copie la valeur → ajoute-la dans Vercel (`SPOTIFY_REFRESH_TOKEN`) → redeploie.
+
+---
+
+### 🎛️ Choisir l’appareil (device) de lecture
+
+1. Lance Spotify sur l’appareil DJ (téléphone/PC/enceinte).
+2. Ouvre `https://<TON-PROJET>.vercel.app/api/devices` → récupère l’`id` du bon device.
+3. Mets cet `id` dans `SPOTIFY_DEVICE_ID` (Vercel env) → redeploie.  
+   *(Sinon, tu pourras passer `&device_id=...` dans l’URL du QR.)*
+
+> **Important** : Spotify exige qu’au moins **un appareil soit “actif”** (ou récemment actif). Ouvre l’app Spotify sur l’appareil DJ avant les tests.
+
+---
+
+### 🧿 Format des QR Codes (à imprimer sur les cartes)
+
+Encode l’URL suivante dans tes QR :
 

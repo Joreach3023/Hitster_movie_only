@@ -1,6 +1,7 @@
 // ------- Config -------
 const API_BASE = 'https://hitster-jordan-oexi.vercel.app';
 const TRACKS_JSON = './tracks.json';
+const FULL_PLAYBACK_STORAGE_KEY = 'hitster_full_playback';
 
 // ------- State -------
 let accessToken = null;
@@ -13,6 +14,8 @@ let timerHandle = null;
 let tracksCache = null;
 let tracksIndex = null;
 let sdkReady = false;
+let fullTrackMode = false;
+let playbackQueue = Promise.resolve();
 
 // ------- UI refs -------
 const statusEl = document.getElementById('status');
@@ -24,6 +27,7 @@ const timerEl = document.getElementById('timer');
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
 const yearEl = document.getElementById('year');
+const fullTrackToggle = document.getElementById('fullTrackToggle');
 
 const openScannerBtn = document.getElementById('openScannerBtn');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
@@ -57,6 +61,16 @@ function normalizeToUri(value) {
   const match = text.match(/^https?:\/\/open\.spotify\.com\/track\/([A-Za-z0-9]+)(?:\?.*)?$/i);
   if (match) {
     return `spotify:track:${match[1]}`;
+  }
+  return null;
+}
+
+function getUrlConstructor() {
+  if (typeof window !== 'undefined' && window.URL) {
+    return window.URL;
+  }
+  if (typeof URL !== 'undefined') {
+    return URL;
   }
   return null;
 }
@@ -115,18 +129,20 @@ async function resolveFromId(id) {
 }
 
 function beginCountdown() {
-  countdown = 30;
-  if (timerEl) {
-    timerEl.textContent = countdown;
-  }
   clearInterval(timerHandle);
+  timerHandle = null;
+  if (fullTrackMode) {
+    syncTimerDisplay();
+    return;
+  }
+  countdown = 30;
+  syncTimerDisplay();
   timerHandle = setInterval(async () => {
     countdown -= 1;
-    if (timerEl) {
-      timerEl.textContent = countdown;
-    }
+    syncTimerDisplay();
     if (countdown <= 0) {
       clearInterval(timerHandle);
+      timerHandle = null;
       try {
         if (deviceId && accessToken) {
           await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
@@ -142,6 +158,50 @@ function beginCountdown() {
   }, 1000);
 }
 
+function syncTimerDisplay() {
+  if (!timerEl) {
+    return;
+  }
+  timerEl.textContent = fullTrackMode ? '∞' : countdown;
+}
+
+function setFullTrackMode(enabled, { persist = false } = {}) {
+  const desired = Boolean(enabled);
+  fullTrackMode = desired;
+  if (fullTrackToggle) {
+    fullTrackToggle.checked = desired;
+  }
+  if (desired) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  } else if (!Number.isFinite(countdown) || countdown <= 0) {
+    countdown = 30;
+  }
+  syncTimerDisplay();
+  if (persist) {
+    try {
+      localStorage.setItem(FULL_PLAYBACK_STORAGE_KEY, desired ? '1' : '0');
+    } catch (err) {
+      console.warn('Unable to persist playback mode', err);
+    }
+  }
+}
+
+function restoreFullTrackMode() {
+  let preferred = fullTrackToggle ? fullTrackToggle.checked : false;
+  try {
+    const stored = localStorage.getItem(FULL_PLAYBACK_STORAGE_KEY);
+    if (stored === '1') {
+      preferred = true;
+    } else if (stored === '0') {
+      preferred = false;
+    }
+  } catch (err) {
+    console.warn('Unable to read playback mode preference', err);
+  }
+  setFullTrackMode(preferred);
+}
+
 async function transferPlaybackToSdk() {
   if (!accessToken || !deviceId) {
     throw new Error('Login and wait for player ready.');
@@ -154,7 +214,7 @@ async function transferPlaybackToSdk() {
     },
     body: JSON.stringify({ device_ids: [deviceId], play: false })
   });
-  if (!res.ok) {
+  if (res && res.ok === false) {
     throw new Error('Transfert Spotify impossible (' + res.status + ')');
   }
 }
@@ -171,7 +231,7 @@ async function startTrack(uri) {
     },
     body: JSON.stringify({ uris: [uri] })
   });
-  if (!res.ok) {
+  if (res && res.ok === false) {
     let detail = '';
     try {
       const payload = await res.json();
@@ -209,13 +269,26 @@ async function startAfterEnsureDevice() {
     }
 
     await transferPlaybackToSdk();
-    await new Promise(res => setTimeout(res, 350));
     await startTrack(currentUri);
-    setStatus('Playing…');
+    setStatus('Playing...');
   } catch (error) {
     console.error('Playback failed', error);
-    setStatus('Erreur de lecture: ' + (error?.message || error));
+    if (error && error.message === 'Activation blocked') {
+      setStatus('Tap allow audio to enable playback on this device.');
+    } else {
+      setStatus('Erreur de lecture: ' + (error?.message || error));
+    }
     throw error;
+  }
+}
+
+async function runPlaybackSequence() {
+  try {
+    await startAfterEnsureDevice();
+    beginCountdown();
+  } catch (err) {
+    console.error('Play button failed', err);
+    throw err;
   }
 }
 
@@ -226,7 +299,11 @@ function normalizeToUriOrId(text) {
     }
     // URLs first
     if (/^https?:\/\//i.test(text)) {
-      const u = new URL(text);
+      const UrlCtor = getUrlConstructor();
+      if (!UrlCtor) {
+        return { type: 'raw', value: text };
+      }
+      const u = new UrlCtor(text);
       const t = u.searchParams.get('t');
       const id = u.searchParams.get('id');
       if (t) {
@@ -258,10 +335,15 @@ function normalizeToUriOrId(text) {
 async function playFromScan(parsed) {
   if (parsed.type === 'uri') {
     currentUri = parsed.value;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('id');
-    url.searchParams.set('t', parsed.value);
-    history.replaceState(null, '', url.toString());
+    const UrlCtor = getUrlConstructor();
+    if (UrlCtor) {
+      const url = new UrlCtor(window.location.href);
+      url.searchParams.delete('id');
+      url.searchParams.set('t', parsed.value);
+      if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(null, '', url.toString());
+      }
+    }
     try {
       await startAfterEnsureDevice();
       beginCountdown();
@@ -274,10 +356,15 @@ async function playFromScan(parsed) {
     const uri = await resolveFromId(parsed.value);
     if (uri) {
       currentUri = uri;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('t');
-      url.searchParams.set('id', parsed.value);
-      history.replaceState(null, '', url.toString());
+      const UrlCtor = getUrlConstructor();
+      if (UrlCtor) {
+        const url = new UrlCtor(window.location.href);
+        url.searchParams.delete('t');
+        url.searchParams.set('id', parsed.value);
+        if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+          window.history.replaceState(null, '', url.toString());
+        }
+      }
       try {
         await startAfterEnsureDevice();
         beginCountdown();
@@ -421,12 +508,18 @@ if (paramId) {
 
 // ------- Token bootstrap -------
 restoreStoredToken();
+restoreFullTrackMode();
 const tokenFromHash = new URLSearchParams(window.location.search).get('token');
 if (tokenFromHash) {
   applyAccessToken(tokenFromHash);
-  const url = new URL(window.location.href);
-  url.searchParams.delete('token');
-  history.replaceState(null, '', url.toString());
+  const UrlCtor = getUrlConstructor();
+  if (UrlCtor) {
+    const url = new UrlCtor(window.location.href);
+    url.searchParams.delete('token');
+    if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+      window.history.replaceState(null, '', url.toString());
+    }
+  }
 }
 
 // ------- OAuth step 1: redirect to /api/login -------
@@ -443,13 +536,15 @@ window.onSpotifyWebPlaybackSDKReady = () => {
 };
 
 // ------- Play button -------
-playBtn.addEventListener('click', async () => {
-  try {
-    await startAfterEnsureDevice();
-    beginCountdown();
-  } catch (err) {
-    console.error('Play button failed', err);
-  }
+playBtn.addEventListener('click', () => {
+  playbackQueue = playbackQueue
+    .catch(() => {})
+    .then(() => runPlaybackSequence());
+  playbackQueue.catch(() => {});
+});
+
+fullTrackToggle?.addEventListener('change', () => {
+  setFullTrackMode(fullTrackToggle.checked, { persist: true });
 });
 
 // ------- Reveal button -------

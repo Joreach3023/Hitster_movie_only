@@ -2,6 +2,9 @@
 const API_BASE = 'https://hitster-jordan-oexi.vercel.app';
 const TRACKS_JSON = './tracks.json';
 const FULL_PLAYBACK_STORAGE_KEY = 'hitster_full_playback';
+const TIMER_DURATION = 30;
+const HOLD_THRESHOLD_MS = 650;
+const HAPTIC_PULSE_INTERVAL = 220;
 
 // ------- State -------
 let accessToken = null;
@@ -9,13 +12,20 @@ let deviceId = null;
 let player = null;
 let playerActivated = false;
 let currentUri = null;
-let countdown = 30;
+let countdown = TIMER_DURATION;
 let timerHandle = null;
 let tracksCache = null;
 let tracksIndex = null;
 let sdkReady = false;
 let fullTrackMode = false;
 let playbackQueue = Promise.resolve();
+let audioCtx = null;
+let hapticPulseInterval = null;
+let flashClearTimeout = null;
+let revealHoldTimer = null;
+let revealHoldTriggered = false;
+let holdActive = false;
+let keyboardHoldActive = false;
 
 // ------- UI refs -------
 const statusEl = document.getElementById('status');
@@ -24,6 +34,7 @@ const playBtn = document.getElementById('playBtn');
 const revealBtn = document.getElementById('revealBtn');
 const nextBtn = document.getElementById('nextBtn');
 const timerEl = document.getElementById('timer');
+const timerValueEl = document.getElementById('timerValue');
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
 const yearEl = document.getElementById('year');
@@ -73,6 +84,87 @@ function getUrlConstructor() {
     return URL;
   }
   return null;
+}
+
+function ensureAudioContext() {
+  if (audioCtx) {
+    return audioCtx;
+  }
+  const Ctor = typeof window !== 'undefined' ? window.AudioContext || window.webkitAudioContext : null;
+  if (!Ctor) {
+    return null;
+  }
+  audioCtx = new Ctor();
+  return audioCtx;
+}
+
+function playMicroSfx() {
+  const ctx = ensureAudioContext();
+  if (!ctx) {
+    return;
+  }
+  if (typeof ctx.resume === 'function' && ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(220, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.035, now + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.2);
+}
+
+function triggerFlash() {
+  if (!document?.body) {
+    return;
+  }
+  document.body.classList.add('haptic-flash');
+  if (flashClearTimeout) {
+    clearTimeout(flashClearTimeout);
+  }
+  flashClearTimeout = setTimeout(() => {
+    document.body.classList.remove('haptic-flash');
+    flashClearTimeout = null;
+  }, 120);
+}
+
+function doHapticPulse() {
+  try {
+    if (navigator?.vibrate) {
+      navigator.vibrate(15);
+    }
+  } catch (err) {
+    // Ignore vibration errors
+  }
+  playMicroSfx();
+  triggerFlash();
+}
+
+function startHapticFeedback() {
+  stopHapticFeedback();
+  doHapticPulse();
+  hapticPulseInterval = setInterval(() => {
+    doHapticPulse();
+  }, HAPTIC_PULSE_INTERVAL);
+}
+
+function stopHapticFeedback() {
+  if (hapticPulseInterval) {
+    clearInterval(hapticPulseInterval);
+    hapticPulseInterval = null;
+  }
+  if (flashClearTimeout) {
+    clearTimeout(flashClearTimeout);
+    flashClearTimeout = null;
+  }
+  if (document?.body) {
+    document.body.classList.remove('haptic-flash');
+  }
 }
 
 async function loadTracks() {
@@ -135,14 +227,14 @@ function beginCountdown() {
     syncTimerDisplay();
     return;
   }
-  countdown = 30;
-  syncTimerDisplay();
+  countdown = TIMER_DURATION;
   timerHandle = setInterval(async () => {
     countdown -= 1;
     syncTimerDisplay();
     if (countdown <= 0) {
       clearInterval(timerHandle);
       timerHandle = null;
+      syncTimerDisplay();
       try {
         if (deviceId && accessToken) {
           await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
@@ -156,13 +248,24 @@ function beginCountdown() {
       setStatus('Stopped.');
     }
   }, 1000);
+  syncTimerDisplay();
 }
 
 function syncTimerDisplay() {
   if (!timerEl) {
     return;
   }
-  timerEl.textContent = fullTrackMode ? '∞' : countdown;
+  const displayValue = fullTrackMode ? '∞' : Math.max(0, countdown);
+  if (timerValueEl) {
+    timerValueEl.textContent = displayValue;
+  } else {
+    timerEl.textContent = displayValue;
+  }
+  const progressPercent = fullTrackMode
+    ? 100
+    : Math.max(0, Math.min(100, (countdown / TIMER_DURATION) * 100));
+  timerEl.style.setProperty('--progress', `${progressPercent}%`);
+  timerEl.classList.toggle('is-counting', Boolean(timerHandle) && !fullTrackMode);
 }
 
 function setFullTrackMode(enabled, { persist = false } = {}) {
@@ -174,8 +277,9 @@ function setFullTrackMode(enabled, { persist = false } = {}) {
   if (desired) {
     clearInterval(timerHandle);
     timerHandle = null;
+    timerEl?.classList.remove('is-counting');
   } else if (!Number.isFinite(countdown) || countdown <= 0) {
-    countdown = 30;
+    countdown = TIMER_DURATION;
   }
   syncTimerDisplay();
   if (persist) {
@@ -289,6 +393,24 @@ async function runPlaybackSequence() {
   } catch (err) {
     console.error('Play button failed', err);
     throw err;
+  }
+}
+
+async function showReveal() {
+  revealBox.hidden = false;
+  if (!currentUri) {
+    titleEl.textContent = 'No track selected';
+    yearEl.textContent = '';
+    return;
+  }
+  const map = await loadTracks();
+  const meta = map[currentUri] || null;
+  if (meta) {
+    titleEl.textContent = meta.title || 'Unknown track';
+    yearEl.textContent = meta.year || '';
+  } else {
+    titleEl.textContent = 'Unknown track';
+    yearEl.textContent = '';
   }
 }
 
@@ -547,24 +669,111 @@ fullTrackToggle?.addEventListener('change', () => {
   setFullTrackMode(fullTrackToggle.checked, { persist: true });
 });
 
-// ------- Reveal button -------
-revealBtn.addEventListener('click', async () => {
-  revealBox.hidden = false;
-  if (!currentUri) {
-    titleEl.textContent = 'No track selected';
-    yearEl.textContent = '';
+// ------- Reveal button (hold to reveal) -------
+function beginRevealHold() {
+  if (!revealBtn || holdActive || revealBtn.disabled) {
     return;
   }
-  const map = await loadTracks();
-  const meta = map[currentUri] || null;
-  if (meta) {
-    titleEl.textContent = meta.title || 'Unknown track';
-    yearEl.textContent = meta.year || '';
-  } else {
-    titleEl.textContent = 'Unknown track';
-    yearEl.textContent = '';
+  holdActive = true;
+  revealHoldTriggered = false;
+  startHapticFeedback();
+  revealBtn.classList.add('is-holding');
+  revealHoldTimer = setTimeout(() => {
+    revealHoldTimer = null;
+    revealHoldTriggered = true;
+    Promise.resolve(showReveal())
+      .catch(err => console.error('Reveal failed', err))
+      .finally(() => finishRevealHold(true));
+  }, HOLD_THRESHOLD_MS);
+}
+
+function finishRevealHold(triggered = false) {
+  if (revealHoldTimer) {
+    clearTimeout(revealHoldTimer);
+    revealHoldTimer = null;
   }
-});
+  stopHapticFeedback();
+  revealBtn?.classList.remove('is-holding');
+  holdActive = false;
+  if (!triggered) {
+    revealHoldTriggered = false;
+  }
+}
+
+function settlePointerHold() {
+  const triggered = revealHoldTriggered;
+  finishRevealHold(triggered);
+  revealHoldTriggered = false;
+  keyboardHoldActive = false;
+}
+
+function cancelKeyboardHold() {
+  if (!keyboardHoldActive) {
+    return;
+  }
+  const triggered = revealHoldTriggered;
+  finishRevealHold(triggered);
+  revealHoldTriggered = false;
+  keyboardHoldActive = false;
+}
+
+if (revealBtn) {
+  const pointerDownHandler = event => {
+    if (revealBtn.disabled) {
+      return;
+    }
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+    }
+    if (typeof revealBtn.setPointerCapture === 'function' && event.pointerId != null) {
+      try {
+        revealBtn.setPointerCapture(event.pointerId);
+      } catch (err) {
+        // Ignore pointer capture errors
+      }
+    }
+    beginRevealHold();
+  };
+
+  revealBtn.addEventListener('pointerdown', pointerDownHandler, { passive: false });
+  revealBtn.addEventListener('pointerup', settlePointerHold);
+  revealBtn.addEventListener('pointerleave', settlePointerHold);
+  revealBtn.addEventListener('pointercancel', settlePointerHold);
+
+  revealBtn.addEventListener('keydown', event => {
+    if (revealBtn.disabled) {
+      return;
+    }
+    if (event.code !== 'Space' && event.code !== 'Enter') {
+      return;
+    }
+    if (keyboardHoldActive) {
+      return;
+    }
+    keyboardHoldActive = true;
+    event.preventDefault();
+    beginRevealHold();
+  });
+
+  revealBtn.addEventListener('keyup', event => {
+    if (event.code !== 'Space' && event.code !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    cancelKeyboardHold();
+  });
+
+  revealBtn.addEventListener('blur', () => {
+    cancelKeyboardHold();
+  });
+
+  revealBtn.addEventListener('contextmenu', event => {
+    event.preventDefault();
+  });
+}
 
 // ------- Next button -------
 nextBtn.addEventListener('click', () => {

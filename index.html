@@ -23,11 +23,13 @@
     <div id="status" class="status">Ready</div>
 
     <div class="card">
-      <div class="timer" id="timer">30</div>
+      <div class="timer" id="timer" role="timer" aria-live="polite">
+        <span class="timer__value" id="timerValue">30</span>
+      </div>
       <div class="controls">
         <button id="loginBtn">Login with Spotify</button>
         <button id="playBtn" disabled>Play</button>
-        <button id="revealBtn" disabled>Reveal</button>
+        <button id="revealBtn" disabled>Indice (maintenir)</button>
         <button id="nextBtn" disabled>Next</button>
       </div>
       <label class="playback-toggle">

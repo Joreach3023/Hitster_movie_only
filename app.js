@@ -26,6 +26,24 @@ let revealHoldTimer = null;
 let revealHoldTriggered = false;
 let holdActive = false;
 let keyboardHoldActive = false;
+let wakeLockSentinel = null;
+let wakeLockRequested = false;
+let torchTrack = null;
+let vibeAnalyser = null;
+let vibeDataArray = null;
+let vibeAnimationHandle = null;
+let vibeGainNode = null;
+let vibeOscillator = null;
+let vibeEnergyTarget = 0;
+let vibeDisplayLevel = 0;
+let vibeActive = false;
+let lastMediaSessionUri = null;
+let mediaSessionHandlersBound = false;
+const reduceMotionQuery =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+let reduceMotionEnabled = reduceMotionQuery ? reduceMotionQuery.matches : false;
 
 // ------- UI refs -------
 const statusEl = document.getElementById('status');
@@ -167,6 +185,355 @@ function stopHapticFeedback() {
   }
 }
 
+function withViewTransition(callback) {
+  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function') {
+    try {
+      const transition = document.startViewTransition(() => {
+        callback();
+      });
+      return transition;
+    } catch (err) {
+      console.warn('View transition not available', err);
+    }
+  }
+  callback();
+  return null;
+}
+
+async function ensureWakeLock() {
+  wakeLockRequested = true;
+  if (typeof navigator === 'undefined' || !navigator.wakeLock || typeof navigator.wakeLock.request !== 'function') {
+    return null;
+  }
+  if (wakeLockSentinel) {
+    return wakeLockSentinel;
+  }
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => {
+      wakeLockSentinel = null;
+      if (wakeLockRequested && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        ensureWakeLock().catch(() => {});
+      }
+    });
+  } catch (err) {
+    console.warn('Unable to acquire wake lock', err);
+  }
+  return wakeLockSentinel;
+}
+
+function releaseWakeLock() {
+  wakeLockRequested = false;
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
+}
+
+function ensureVibeAnalyser() {
+  if (reduceMotionEnabled) {
+    return false;
+  }
+  if (vibeAnalyser) {
+    return true;
+  }
+  const ctx = ensureAudioContext();
+  if (!ctx) {
+    return false;
+  }
+  vibeAnalyser = ctx.createAnalyser();
+  vibeAnalyser.fftSize = 256;
+  vibeDataArray = new Uint8Array(vibeAnalyser.frequencyBinCount);
+  vibeGainNode = ctx.createGain();
+  vibeGainNode.gain.value = 0.00008;
+  vibeOscillator = ctx.createOscillator();
+  vibeOscillator.type = 'sawtooth';
+  vibeOscillator.frequency.value = 40;
+  vibeOscillator.connect(vibeGainNode).connect(vibeAnalyser).connect(ctx.destination);
+  vibeOscillator.start();
+  return true;
+}
+
+function pumpVibes() {
+  if (!vibeAnalyser || reduceMotionEnabled) {
+    vibeAnimationHandle = null;
+    if (document?.documentElement?.style) {
+      document.documentElement.style.setProperty('--vibe-pulse', '0');
+    }
+    return;
+  }
+  if (!vibeActive) {
+    vibeDisplayLevel += (0 - vibeDisplayLevel) * 0.12;
+    if (document?.documentElement?.style) {
+      document.documentElement.style.setProperty('--vibe-pulse', Math.max(0, vibeDisplayLevel).toFixed(3));
+    }
+    if (Math.abs(vibeDisplayLevel) < 0.002) {
+      vibeDisplayLevel = 0;
+      if (document?.documentElement?.style) {
+        document.documentElement.style.setProperty('--vibe-pulse', '0');
+      }
+      vibeAnimationHandle = null;
+      return;
+    }
+    vibeAnimationHandle = requestAnimationFrame(pumpVibes);
+    return;
+  }
+  vibeAnalyser.getByteFrequencyData(vibeDataArray);
+  let sum = 0;
+  for (let i = 0; i < vibeDataArray.length; i += 1) {
+    sum += vibeDataArray[i];
+  }
+  const avg = sum / (vibeDataArray.length * 255);
+  const target = Math.max(avg * 1.25, vibeEnergyTarget);
+  vibeDisplayLevel += (target - vibeDisplayLevel) * 0.08;
+  if (document?.documentElement?.style) {
+    document.documentElement.style.setProperty('--vibe-pulse', Math.max(0, Math.min(1, vibeDisplayLevel)).toFixed(3));
+  }
+  vibeAnimationHandle = requestAnimationFrame(pumpVibes);
+}
+
+function setVibeActive(active) {
+  if (reduceMotionEnabled) {
+    vibeActive = false;
+    if (document?.documentElement?.style) {
+      document.documentElement.style.setProperty('--vibe-pulse', '0');
+    }
+    if (vibeAnimationHandle) {
+      cancelAnimationFrame(vibeAnimationHandle);
+      vibeAnimationHandle = null;
+    }
+    return;
+  }
+  if (active) {
+    if (!ensureVibeAnalyser()) {
+      return;
+    }
+    vibeActive = true;
+    if (!vibeAnimationHandle) {
+      vibeAnimationHandle = requestAnimationFrame(pumpVibes);
+    }
+  } else {
+    vibeActive = false;
+    vibeEnergyTarget = 0;
+    if (!vibeAnimationHandle) {
+      vibeAnimationHandle = requestAnimationFrame(pumpVibes);
+    }
+  }
+}
+
+function updateVibeFromState(state) {
+  if (reduceMotionEnabled) {
+    vibeEnergyTarget = 0;
+    return;
+  }
+  if (!state || !ensureVibeAnalyser()) {
+    vibeEnergyTarget = 0;
+    return;
+  }
+  const duration = typeof state.duration === 'number' ? state.duration : 0;
+  const position = typeof state.position === 'number' ? state.position : 0;
+  const progress = duration > 0 ? position / duration : 0;
+  const beat = Math.abs(Math.sin(progress * Math.PI * 4));
+  vibeEnergyTarget = state.paused ? 0 : Math.min(1, 0.25 + beat * 0.75);
+  if (vibeGainNode) {
+    vibeGainNode.gain.value = state.paused ? 0.00002 : 0.00008 + 0.00025 * beat;
+  }
+  if (vibeOscillator) {
+    vibeOscillator.frequency.value = 40 + beat * 80;
+  }
+}
+
+function toggleScannerPane(show) {
+  if (!scannerPane) {
+    return;
+  }
+  withViewTransition(() => {
+    scannerPane.hidden = !show;
+  });
+  if (document?.documentElement?.classList) {
+    document.documentElement.classList.toggle('scanner-open', show);
+  }
+}
+
+function setScannerMessage(message) {
+  if (scannerStatus) {
+    scannerStatus.textContent = message;
+  }
+}
+
+function setupMediaSessionHandlers() {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || mediaSessionHandlersBound) {
+    return;
+  }
+  mediaSessionHandlersBound = true;
+  const safeHandler = handler => {
+    return () => {
+      try {
+        handler();
+      } catch (err) {
+        console.warn('MediaSession handler failed', err);
+      }
+    };
+  };
+  const actions = [
+    ['play', () => playBtn?.click?.()],
+    ['pause', () => player?.pause?.()],
+    [
+      'stop',
+      () => {
+        player?.pause?.();
+        releaseWakeLock();
+        setVibeActive(false);
+      }
+    ],
+    ['nexttrack', () => nextBtn?.click?.()]
+  ];
+  actions.forEach(([action, handler]) => {
+    try {
+      navigator.mediaSession.setActionHandler(action, safeHandler(handler));
+    } catch (err) {
+      // Some browsers may not support every action; ignore.
+    }
+  });
+}
+
+async function applyMediaMetadata(uri, fallbackTrack) {
+  if (!uri || typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
+    return;
+  }
+  setupMediaSessionHandlers();
+  let title = fallbackTrack?.name || 'Hitster';
+  let artist = Array.isArray(fallbackTrack?.artists)
+    ? fallbackTrack.artists
+        .map(artistMeta => artistMeta && artistMeta.name)
+        .filter(Boolean)
+        .join(', ')
+    : '';
+  let album = fallbackTrack?.album?.name || 'Hitster Session';
+
+  try {
+    const tracks = await loadTracks();
+    const meta = tracks[uri];
+    if (meta) {
+      if (meta.title) {
+        title = meta.title;
+      }
+      if (meta.year) {
+        album = `Hitster ${meta.year}`;
+        if (!artist) {
+          artist = `Sortie ${meta.year}`;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Unable to enrich metadata from tracks.json', err);
+  }
+
+  try {
+    if (typeof MediaMetadata === 'undefined') {
+      lastMediaSessionUri = uri;
+      return;
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: artist || 'Hitster Hidden Player',
+      album,
+      artwork: [
+        { src: 'assets/icons/icon.svg', sizes: '192x192', type: 'image/svg+xml' },
+        { src: 'assets/icons/icon.svg', sizes: '512x512', type: 'image/svg+xml' }
+      ]
+    });
+    lastMediaSessionUri = uri;
+  } catch (err) {
+    console.warn('Unable to update media session metadata', err);
+  }
+}
+
+function primeMediaSession(uri) {
+  if (!uri) {
+    return;
+  }
+  applyMediaMetadata(uri, null);
+}
+
+async function updateMediaSessionState(state) {
+  if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    if (!state) {
+      navigator.mediaSession.playbackState = 'none';
+    }
+  }
+  if (!state) {
+    releaseWakeLock();
+    updateVibeFromState(null);
+    setVibeActive(false);
+    return;
+  }
+
+  const uri = state?.track_window?.current_track?.uri || currentUri;
+  if (uri && uri !== lastMediaSessionUri) {
+    await applyMediaMetadata(uri, state?.track_window?.current_track || null);
+  }
+
+  if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = state.paused ? 'paused' : 'playing';
+    } catch (err) {
+      // Ignore playback state errors
+    }
+    if (typeof navigator.mediaSession.setPositionState === 'function') {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: typeof state.duration === 'number' ? state.duration / 1000 : 0,
+          playbackRate: state.playback_rate ?? 1,
+          position: typeof state.position === 'number' ? state.position / 1000 : 0
+        });
+      } catch (err) {
+        // Ignore position state errors
+      }
+    }
+  }
+
+  updateVibeFromState(state);
+  if (state.paused) {
+    releaseWakeLock();
+    setVibeActive(false);
+  } else {
+    ensureWakeLock().catch(() => {});
+    setVibeActive(true);
+  }
+}
+
+if (reduceMotionQuery) {
+  const handleReduceMotionChange = event => {
+    reduceMotionEnabled = event.matches;
+    if (reduceMotionEnabled) {
+      setVibeActive(false);
+    } else if (player && typeof player.getCurrentState === 'function') {
+      player
+        .getCurrentState()
+        .then(state => {
+          if (state && !state.paused) {
+            setVibeActive(true);
+          }
+        })
+        .catch(() => {});
+    }
+  };
+  if (typeof reduceMotionQuery.addEventListener === 'function') {
+    reduceMotionQuery.addEventListener('change', handleReduceMotionChange);
+  } else if (typeof reduceMotionQuery.addListener === 'function') {
+    reduceMotionQuery.addListener(handleReduceMotionChange);
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLockRequested && !wakeLockSentinel) {
+      ensureWakeLock().catch(() => {});
+    }
+  });
+}
+
 async function loadTracks() {
   if (tracksCache) {
     return tracksCache;
@@ -246,6 +613,8 @@ function beginCountdown() {
         console.error('Failed to pause after countdown', err);
       }
       setStatus('Stopped.');
+      releaseWakeLock();
+      setVibeActive(false);
     }
   }, 1000);
   syncTimerDisplay();
@@ -390,6 +759,9 @@ async function runPlaybackSequence() {
   try {
     await startAfterEnsureDevice();
     beginCountdown();
+    primeMediaSession(currentUri);
+    await ensureWakeLock();
+    setVibeActive(true);
   } catch (err) {
     console.error('Play button failed', err);
     throw err;
@@ -397,7 +769,11 @@ async function runPlaybackSequence() {
 }
 
 async function showReveal() {
-  revealBox.hidden = false;
+  if (revealBox && revealBox.hidden) {
+    withViewTransition(() => {
+      revealBox.hidden = false;
+    });
+  }
   if (!currentUri) {
     titleEl.textContent = 'No track selected';
     yearEl.textContent = '';
@@ -457,6 +833,7 @@ function normalizeToUriOrId(text) {
 async function playFromScan(parsed) {
   if (parsed.type === 'uri') {
     currentUri = parsed.value;
+    primeMediaSession(currentUri);
     const UrlCtor = getUrlConstructor();
     if (UrlCtor) {
       const url = new UrlCtor(window.location.href);
@@ -469,6 +846,8 @@ async function playFromScan(parsed) {
     try {
       await startAfterEnsureDevice();
       beginCountdown();
+      ensureWakeLock().catch(() => {});
+      setVibeActive(true);
     } catch (_) {
       // status already handled
     }
@@ -478,6 +857,7 @@ async function playFromScan(parsed) {
     const uri = await resolveFromId(parsed.value);
     if (uri) {
       currentUri = uri;
+      primeMediaSession(currentUri);
       const UrlCtor = getUrlConstructor();
       if (UrlCtor) {
         const url = new UrlCtor(window.location.href);
@@ -490,6 +870,8 @@ async function playFromScan(parsed) {
       try {
         await startAfterEnsureDevice();
         beginCountdown();
+        ensureWakeLock().catch(() => {});
+        setVibeActive(true);
       } catch (_) {
         // status already handled
       }
@@ -509,6 +891,14 @@ async function playFromScan(parsed) {
 
 function stopScanner() {
   scanRunning = false;
+  if (torchTrack && typeof torchTrack.applyConstraints === 'function') {
+    try {
+      torchTrack.applyConstraints({ advanced: [{ torch: false }] });
+    } catch (err) {
+      console.warn('Unable to disable torch', err);
+    }
+  }
+  torchTrack = null;
   if (mediaStream) {
     mediaStream.getTracks().forEach(track => track.stop());
     mediaStream = null;
@@ -533,18 +923,18 @@ function scanLoop() {
   ctx.drawImage(qrVideo, 0, 0, w, h);
   const img = ctx.getImageData(0, 0, w, h);
   if (typeof jsQR !== 'function') {
-    scannerStatus.textContent = 'Bibliothèque jsQR indisponible.';
+    setScannerMessage('Bibliothèque jsQR indisponible.');
     stopScanner();
     return;
   }
   const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
   if (code && code.data) {
     scanRunning = false;
-    scannerStatus.textContent = 'QR détecté !';
+    setScannerMessage('QR détecté !');
     stopScanner();
     const parsed = normalizeToUriOrId(code.data.trim());
     playFromScan(parsed);
-    scannerPane.hidden = true;
+    toggleScannerPane(false);
   } else {
     requestAnimationFrame(scanLoop);
   }
@@ -580,6 +970,15 @@ function attemptSetupPlayer() {
   player.addListener('initialization_error', ({ message }) => setStatus('Init error: ' + message));
   player.addListener('authentication_error', ({ message }) => setStatus('Auth error: ' + message));
   player.addListener('account_error', ({ message }) => setStatus('Account error: ' + message));
+  player.addListener('player_state_changed', state => {
+    if (!state) {
+      updateMediaSessionState(null);
+      return;
+    }
+    Promise.resolve(updateMediaSessionState(state)).catch(err => {
+      console.error('Unable to update media session state', err);
+    });
+  });
 
   player.connect();
 }
@@ -613,19 +1012,38 @@ function restoreStoredToken() {
 const qs = new URLSearchParams(window.location.search);
 const paramUri = qs.get('t');
 const paramId = qs.get('id');
+const paramAction = qs.get('action');
 if (paramUri) {
   const normalized = normalizeToUri(paramUri) || paramUri;
   currentUri = normalized;
+  primeMediaSession(currentUri);
 }
 
 if (paramId) {
   resolveFromId(paramId).then(uri => {
     if (uri) {
       currentUri = uri;
+      primeMediaSession(currentUri);
     } else {
       setStatus(`ID ${paramId} introuvable dans tracks.json`);
     }
   });
+}
+
+if (paramAction === 'scanner') {
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      openScannerBtn?.click?.();
+    }, 150);
+  });
+  const UrlCtor = getUrlConstructor();
+  if (UrlCtor) {
+    const url = new UrlCtor(window.location.href);
+    url.searchParams.delete('action');
+    if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+      window.history.replaceState(null, '', url.toString());
+    }
+  }
 }
 
 // ------- Token bootstrap -------
@@ -783,34 +1201,56 @@ nextBtn.addEventListener('click', () => {
 // ------- Scanner controls -------
 openScannerBtn?.addEventListener('click', async () => {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    scannerStatus.textContent = 'Caméra indisponible sur cet appareil.';
+    setScannerMessage('Caméra indisponible sur cet appareil.');
     return;
   }
   if (typeof jsQR !== 'function') {
-    scannerStatus.textContent = 'Bibliothèque jsQR indisponible.';
+    setScannerMessage('Bibliothèque jsQR indisponible.');
     return;
   }
+  toggleScannerPane(true);
   try {
-    scannerPane.hidden = false;
-    scannerStatus.textContent = 'Ouverture de la caméra…';
+    setScannerMessage('Ouverture de la caméra…');
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
       audio: false
     });
     qrVideo.srcObject = mediaStream;
+    const tracks = mediaStream.getVideoTracks();
+    torchTrack = tracks && tracks[0] ? tracks[0] : null;
+    let torchMessageShown = false;
+    if (torchTrack && typeof torchTrack.getCapabilities === 'function') {
+      const capabilities = torchTrack.getCapabilities();
+      if (capabilities && capabilities.torch) {
+        try {
+          await torchTrack.applyConstraints({ advanced: [{ torch: true }] });
+          setScannerMessage('Flash activé – scanne un QR…');
+          torchMessageShown = true;
+        } catch (err) {
+          console.warn('Torch activation failed', err);
+        }
+      }
+    }
     await qrVideo.play();
     scanRunning = true;
-    scannerStatus.textContent = 'Scanne un QR…';
+    if (!torchMessageShown) {
+      setScannerMessage('Scanne un QR…');
+    }
     scanLoop();
   } catch (err) {
     console.error('Unable to open camera', err);
-    scannerStatus.textContent = 'Permission caméra refusée ou indisponible.';
+    setScannerMessage('Permission caméra refusée ou indisponible.');
     stopScanner();
+    toggleScannerPane(false);
   }
 });
 
 closeScannerBtn?.addEventListener('click', () => {
   stopScanner();
-  scannerPane.hidden = true;
-  scannerStatus.textContent = 'Caméra fermée';
+  toggleScannerPane(false);
+  setScannerMessage('Caméra fermée');
 });

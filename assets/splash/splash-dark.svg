@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#02030a" />
+      <stop offset="0.5" stop-color="#050d27" />
+      <stop offset="1" stop-color="#120427" />
+    </linearGradient>
+    <radialGradient id="pulse" cx="0.7" cy="0.25" r="0.8">
+      <stop offset="0" stop-color="#04f5ff" stop-opacity="0.45" />
+      <stop offset="0.6" stop-color="#452bff" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#000" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1290" height="2796" fill="url(#bg)" />
+  <circle cx="950" cy="420" r="520" fill="url(#pulse)" />
+  <circle cx="320" cy="960" r="360" fill="url(#pulse)" opacity="0.8" />
+  <circle cx="920" cy="2160" r="460" fill="url(#pulse)" opacity="0.6" />
+  <g fill="none" stroke="#04f5ff" stroke-opacity="0.18" stroke-width="10">
+    <path d="M220 2240c200 180 420 280 710 280 260 0 480-80 660-240" />
+    <path d="M280 2040c170 150 360 230 580 230 220 0 400-70 560-210" />
+  </g>
+  <text
+    x="50%"
+    y="52%"
+    font-family="'Orbitron', 'Segoe UI', sans-serif"
+    font-size="180"
+    text-anchor="middle"
+    fill="#f8fbff"
+    font-weight="700"
+    letter-spacing="28"
+  >
+    HITSTER
+  </text>
+</svg>

@@ -140,6 +140,7 @@ h1 {
   --progress: 100%;
   filter: drop-shadow(0 0 18px rgba(4, 245, 255, 0.35));
   transition: filter 280ms ease;
+  isolation: isolate;
 }
 
 .timer::before {
@@ -150,6 +151,8 @@ h1 {
   background: linear-gradient(145deg, rgba(4, 245, 255, 0.18), rgba(138, 43, 255, 0.28));
   box-shadow: inset 0 0 22px rgba(4, 245, 255, 0.35);
   opacity: 0.45;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .timer::after {
@@ -161,6 +164,8 @@ h1 {
   mask: radial-gradient(farthest-side, transparent calc(50% - 16px), black calc(50% - 15px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - 16px), black calc(50% - 15px));
   transition: background 0.3s linear, opacity 0.2s ease;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .timer.is-counting::after {
@@ -179,6 +184,13 @@ h1 {
   color: var(--fg);
   text-shadow: 0 0 16px rgba(4, 245, 255, 0.6), 0 0 28px rgba(138, 43, 255, 0.6);
   animation: pulseTimer 2.6s ease-in-out infinite;
+  z-index: 1;
+  padding: 0.1em 0.45em;
+  border-radius: 999px;
+  background: rgba(3, 10, 28, 0.55);
+  box-shadow: 0 12px 28px rgba(4, 245, 255, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .controls {

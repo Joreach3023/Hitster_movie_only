@@ -4,7 +4,8 @@ const TRACKS_JSON = './tracks.json';
 const FULL_PLAYBACK_STORAGE_KEY = 'hitster_full_playback';
 const TIMER_DURATION = 30;
 const HOLD_THRESHOLD_MS = 650;
-const HAPTIC_PULSE_INTERVAL = 220;
+const SCAN_LOOP_INTERVAL = 150;
+const SCANNER_INACTIVITY_MS = 30000;
 
 // ------- State -------
 let accessToken = null;
@@ -20,7 +21,6 @@ let sdkReady = false;
 let fullTrackMode = false;
 let playbackQueue = Promise.resolve();
 let audioCtx = null;
-let hapticPulseInterval = null;
 let flashClearTimeout = null;
 let revealHoldTimer = null;
 let revealHoldTriggered = false;
@@ -66,6 +66,8 @@ const scannerStatus = document.getElementById('scannerStatus');
 
 let mediaStream = null;
 let scanRunning = false;
+let scanLoopHandle = null;
+let scannerInactivityTimer = null;
 
 // ------- Helpers -------
 function setStatus(msg) {
@@ -165,16 +167,9 @@ function doHapticPulse() {
 function startHapticFeedback() {
   stopHapticFeedback();
   doHapticPulse();
-  hapticPulseInterval = setInterval(() => {
-    doHapticPulse();
-  }, HAPTIC_PULSE_INTERVAL);
 }
 
 function stopHapticFeedback() {
-  if (hapticPulseInterval) {
-    clearInterval(hapticPulseInterval);
-    hapticPulseInterval = null;
-  }
   if (flashClearTimeout) {
     clearTimeout(flashClearTimeout);
     flashClearTimeout = null;
@@ -230,116 +225,28 @@ function releaseWakeLock() {
 }
 
 function ensureVibeAnalyser() {
-  if (reduceMotionEnabled) {
-    return false;
-  }
-  if (vibeAnalyser) {
-    return true;
-  }
-  const ctx = ensureAudioContext();
-  if (!ctx) {
-    return false;
-  }
-  vibeAnalyser = ctx.createAnalyser();
-  vibeAnalyser.fftSize = 256;
-  vibeDataArray = new Uint8Array(vibeAnalyser.frequencyBinCount);
-  vibeGainNode = ctx.createGain();
-  vibeGainNode.gain.value = 0.00008;
-  vibeOscillator = ctx.createOscillator();
-  vibeOscillator.type = 'sawtooth';
-  vibeOscillator.frequency.value = 40;
-  vibeOscillator.connect(vibeGainNode).connect(vibeAnalyser).connect(ctx.destination);
-  vibeOscillator.start();
-  return true;
+  return false;
 }
 
 function pumpVibes() {
-  if (!vibeAnalyser || reduceMotionEnabled) {
-    vibeAnimationHandle = null;
-    if (document?.documentElement?.style) {
-      document.documentElement.style.setProperty('--vibe-pulse', '0');
-    }
-    return;
-  }
-  if (!vibeActive) {
-    vibeDisplayLevel += (0 - vibeDisplayLevel) * 0.12;
-    if (document?.documentElement?.style) {
-      document.documentElement.style.setProperty('--vibe-pulse', Math.max(0, vibeDisplayLevel).toFixed(3));
-    }
-    if (Math.abs(vibeDisplayLevel) < 0.002) {
-      vibeDisplayLevel = 0;
-      if (document?.documentElement?.style) {
-        document.documentElement.style.setProperty('--vibe-pulse', '0');
-      }
-      vibeAnimationHandle = null;
-      return;
-    }
-    vibeAnimationHandle = requestAnimationFrame(pumpVibes);
-    return;
-  }
-  vibeAnalyser.getByteFrequencyData(vibeDataArray);
-  let sum = 0;
-  for (let i = 0; i < vibeDataArray.length; i += 1) {
-    sum += vibeDataArray[i];
-  }
-  const avg = sum / (vibeDataArray.length * 255);
-  const target = Math.max(avg * 1.25, vibeEnergyTarget);
-  vibeDisplayLevel += (target - vibeDisplayLevel) * 0.08;
   if (document?.documentElement?.style) {
-    document.documentElement.style.setProperty('--vibe-pulse', Math.max(0, Math.min(1, vibeDisplayLevel)).toFixed(3));
+    document.documentElement.style.setProperty('--vibe-pulse', '0');
   }
-  vibeAnimationHandle = requestAnimationFrame(pumpVibes);
-}
-
-function setVibeActive(active) {
-  if (reduceMotionEnabled) {
-    vibeActive = false;
-    if (document?.documentElement?.style) {
-      document.documentElement.style.setProperty('--vibe-pulse', '0');
-    }
-    if (vibeAnimationHandle) {
-      cancelAnimationFrame(vibeAnimationHandle);
-      vibeAnimationHandle = null;
-    }
-    return;
-  }
-  if (active) {
-    if (!ensureVibeAnalyser()) {
-      return;
-    }
-    vibeActive = true;
-    if (!vibeAnimationHandle) {
-      vibeAnimationHandle = requestAnimationFrame(pumpVibes);
-    }
-  } else {
-    vibeActive = false;
-    vibeEnergyTarget = 0;
-    if (!vibeAnimationHandle) {
-      vibeAnimationHandle = requestAnimationFrame(pumpVibes);
-    }
+  if (vibeAnimationHandle) {
+    cancelAnimationFrame(vibeAnimationHandle);
+    vibeAnimationHandle = null;
   }
 }
 
-function updateVibeFromState(state) {
-  if (reduceMotionEnabled) {
-    vibeEnergyTarget = 0;
-    return;
-  }
-  if (!state || !ensureVibeAnalyser()) {
-    vibeEnergyTarget = 0;
-    return;
-  }
-  const duration = typeof state.duration === 'number' ? state.duration : 0;
-  const position = typeof state.position === 'number' ? state.position : 0;
-  const progress = duration > 0 ? position / duration : 0;
-  const beat = Math.abs(Math.sin(progress * Math.PI * 4));
-  vibeEnergyTarget = state.paused ? 0 : Math.min(1, 0.25 + beat * 0.75);
-  if (vibeGainNode) {
-    vibeGainNode.gain.value = state.paused ? 0.00002 : 0.00008 + 0.00025 * beat;
-  }
-  if (vibeOscillator) {
-    vibeOscillator.frequency.value = 40 + beat * 80;
-  }
+function setVibeActive() {
+  vibeActive = false;
+  vibeEnergyTarget = 0;
+  pumpVibes();
+}
+
+function updateVibeFromState() {
+  vibeEnergyTarget = 0;
+  pumpVibes();
 }
 
 function toggleScannerPane(show) {
@@ -351,6 +258,9 @@ function toggleScannerPane(show) {
   });
   if (document?.documentElement?.classList) {
     document.documentElement.classList.toggle('scanner-open', show);
+  }
+  if (!show) {
+    stopScanner();
   }
 }
 
@@ -529,6 +439,9 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && wakeLockRequested && !wakeLockSentinel) {
       ensureWakeLock().catch(() => {});
+    } else if (document.visibilityState === 'hidden') {
+      releaseWakeLock();
+      stopHapticFeedback();
     }
   });
 }
@@ -888,8 +801,29 @@ async function playFromScan(parsed) {
   }
 }
 
+function clearScannerInactivityTimer() {
+  if (scannerInactivityTimer) {
+    clearTimeout(scannerInactivityTimer);
+    scannerInactivityTimer = null;
+  }
+}
+
+function scheduleScannerInactivityStop() {
+  clearScannerInactivityTimer();
+  scannerInactivityTimer = setTimeout(() => {
+    setScannerMessage('Scanner arrêté pour économiser la batterie.');
+    stopScanner();
+    toggleScannerPane(false);
+  }, SCANNER_INACTIVITY_MS);
+}
+
 function stopScanner() {
   scanRunning = false;
+  if (scanLoopHandle) {
+    clearTimeout(scanLoopHandle);
+    scanLoopHandle = null;
+  }
+  clearScannerInactivityTimer();
   if (mediaStream) {
     mediaStream.getTracks().forEach(track => track.stop());
     mediaStream = null;
@@ -901,11 +835,13 @@ function stopScanner() {
 }
 
 function scanLoop() {
-  if (!scanRunning) return;
+  if (!scanRunning || !qrVideo || !qrCanvas) {
+    return;
+  }
   const w = qrVideo.videoWidth;
   const h = qrVideo.videoHeight;
   if (!w || !h) {
-    requestAnimationFrame(scanLoop);
+    scanLoopHandle = setTimeout(scanLoop, SCAN_LOOP_INTERVAL);
     return;
   }
   qrCanvas.width = w;
@@ -926,9 +862,9 @@ function scanLoop() {
     const parsed = normalizeToUriOrId(code.data.trim());
     playFromScan(parsed);
     toggleScannerPane(false);
-  } else {
-    requestAnimationFrame(scanLoop);
+    return;
   }
+  scanLoopHandle = setTimeout(scanLoop, SCAN_LOOP_INTERVAL);
 }
 
 function attemptSetupPlayer() {
@@ -1213,6 +1149,7 @@ openScannerBtn?.addEventListener('click', async () => {
     qrVideo.srcObject = mediaStream;
     await qrVideo.play();
     scanRunning = true;
+    scheduleScannerInactivityStop();
     setScannerMessage('Scanne un QR…');
     scanLoop();
   } catch (err) {

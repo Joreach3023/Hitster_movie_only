@@ -28,7 +28,6 @@ let holdActive = false;
 let keyboardHoldActive = false;
 let wakeLockSentinel = null;
 let wakeLockRequested = false;
-let torchTrack = null;
 let vibeAnalyser = null;
 let vibeDataArray = null;
 let vibeAnimationHandle = null;
@@ -891,14 +890,6 @@ async function playFromScan(parsed) {
 
 function stopScanner() {
   scanRunning = false;
-  if (torchTrack && typeof torchTrack.applyConstraints === 'function') {
-    try {
-      torchTrack.applyConstraints({ advanced: [{ torch: false }] });
-    } catch (err) {
-      console.warn('Unable to disable torch', err);
-    }
-  }
-  torchTrack = null;
   if (mediaStream) {
     mediaStream.getTracks().forEach(track => track.stop());
     mediaStream = null;
@@ -1220,26 +1211,9 @@ openScannerBtn?.addEventListener('click', async () => {
       audio: false
     });
     qrVideo.srcObject = mediaStream;
-    const tracks = mediaStream.getVideoTracks();
-    torchTrack = tracks && tracks[0] ? tracks[0] : null;
-    let torchMessageShown = false;
-    if (torchTrack && typeof torchTrack.getCapabilities === 'function') {
-      const capabilities = torchTrack.getCapabilities();
-      if (capabilities && capabilities.torch) {
-        try {
-          await torchTrack.applyConstraints({ advanced: [{ torch: true }] });
-          setScannerMessage('Flash activé – scanne un QR…');
-          torchMessageShown = true;
-        } catch (err) {
-          console.warn('Torch activation failed', err);
-        }
-      }
-    }
     await qrVideo.play();
     scanRunning = true;
-    if (!torchMessageShown) {
-      setScannerMessage('Scanne un QR…');
-    }
+    setScannerMessage('Scanne un QR…');
     scanLoop();
   } catch (err) {
     console.error('Unable to open camera', err);

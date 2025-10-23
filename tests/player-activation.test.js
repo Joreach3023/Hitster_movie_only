@@ -137,9 +137,10 @@ async function runScenario({ activationShouldFail = false, playClicks = 1 }) {
 (async () => {
   const success = await runScenario({ activationShouldFail: false, playClicks: 2 });
   assert.strictEqual(success.activateCalls, 1, 'activateElement should be invoked once for repeated plays');
-  assert.strictEqual(success.fetchCalls.length, 4, 'should initiate playback requests for each play click');
+  assert.strictEqual(success.fetchCalls.length, 3, 'should avoid redundant device transfers after the first play');
   assert.strictEqual(success.fetchCalls[0].url, 'https://api.spotify.com/v1/me/player');
   assert.strictEqual(success.fetchCalls[1].url, 'https://api.spotify.com/v1/me/player/play?device_id=device123');
+  assert.strictEqual(success.fetchCalls[2].url, 'https://api.spotify.com/v1/me/player/play?device_id=device123');
   assert.strictEqual(success.statusText, 'Playing...');
   assert.strictEqual(success.timerText, '30');
 

@@ -53,6 +53,17 @@ const revealBtn = document.getElementById('revealBtn');
 const nextBtn = document.getElementById('nextBtn');
 const timerEl = document.getElementById('timer');
 const timerValueEl = document.getElementById('timerValue');
+const timerHeartsEl = document.getElementById('timerHearts');
+const timerHeartEls = [];
+
+if (timerHeartsEl) {
+  for (let i = 0; i < TIMER_DURATION; i += 1) {
+    const heart = document.createElement('span');
+    heart.className = 'timer__heart is-active';
+    timerHeartsEl.appendChild(heart);
+    timerHeartEls.push(heart);
+  }
+}
 const revealBox = document.getElementById('reveal');
 const titleEl = document.getElementById('title');
 const yearEl = document.getElementById('year');
@@ -551,11 +562,16 @@ function syncTimerDisplay() {
   } else {
     timerEl.textContent = displayValue;
   }
-  const progressPercent = fullTrackMode
-    ? 100
-    : Math.max(0, Math.min(100, (countdown / TIMER_DURATION) * 100));
-  timerEl.style.setProperty('--progress', `${progressPercent}%`);
+  if (timerHeartEls.length) {
+    const activeCount = fullTrackMode
+      ? TIMER_DURATION
+      : Math.max(0, Math.min(TIMER_DURATION, countdown));
+    timerHeartEls.forEach((heart, index) => {
+      heart.classList.toggle('is-active', index < activeCount);
+    });
+  }
   timerEl.classList.toggle('is-counting', Boolean(timerHandle) && !fullTrackMode);
+  timerEl.classList.toggle('timer--infinite', fullTrackMode);
 }
 
 function setFullTrackMode(enabled, { persist = false } = {}) {

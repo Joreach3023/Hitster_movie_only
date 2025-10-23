@@ -39,6 +39,7 @@ let vibeDisplayLevel = 0;
 let vibeActive = false;
 let lastMediaSessionUri = null;
 let mediaSessionHandlersBound = false;
+let playbackTransferred = false;
 const reduceMotionQuery =
   typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -535,7 +536,9 @@ function beginCountdown() {
       timerHandle = null;
       syncTimerDisplay();
       try {
-        if (deviceId && accessToken) {
+        if (player && typeof player.pause === 'function') {
+          await player.pause();
+        } else if (deviceId && accessToken) {
           await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
             method: 'PUT',
             headers: { Authorization: 'Bearer ' + accessToken }
@@ -612,9 +615,12 @@ function restoreFullTrackMode() {
   setFullTrackMode(preferred);
 }
 
-async function transferPlaybackToSdk() {
+async function transferPlaybackToSdk({ force = false } = {}) {
   if (!accessToken || !deviceId) {
     throw new Error('Login and wait for player ready.');
+  }
+  if (playbackTransferred && !force) {
+    return;
   }
   const res = await fetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
@@ -627,6 +633,7 @@ async function transferPlaybackToSdk() {
   if (res && res.ok === false) {
     throw new Error('Transfert Spotify impossible (' + res.status + ')');
   }
+  playbackTransferred = true;
 }
 
 async function startTrack(uri) {
@@ -683,6 +690,7 @@ async function startAfterEnsureDevice() {
     setStatus('Playing...');
   } catch (error) {
     console.error('Playback failed', error);
+    playbackTransferred = false;
     if (error && error.message === 'Activation blocked') {
       setStatus('Tap allow audio to enable playback on this device.');
     } else {
@@ -905,6 +913,7 @@ function attemptSetupPlayer() {
 
   player.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
+    playbackTransferred = false;
     setStatus('Player ready. Device: ' + device_id);
   });
 
@@ -912,6 +921,7 @@ function attemptSetupPlayer() {
     if (deviceId === device_id) {
       deviceId = null;
       playerActivated = false;
+      playbackTransferred = false;
     }
     setStatus('Player not ready.');
   });
@@ -934,6 +944,7 @@ function attemptSetupPlayer() {
 
 function applyAccessToken(token) {
   accessToken = token;
+  playbackTransferred = false;
   try {
     localStorage.setItem('spotify_token', token);
   } catch (err) {

@@ -6,6 +6,7 @@ const TIMER_DURATION = 30;
 const HOLD_THRESHOLD_MS = 650;
 const SCAN_LOOP_INTERVAL = 150;
 const SCANNER_INACTIVITY_MS = 30000;
+const SCAN_READY_MESSAGE = 'Musique prête. Appuie sur Play pour lancer !';
 
 // ------- State -------
 let accessToken = null;
@@ -499,14 +500,22 @@ async function resolveFromId(id) {
   return null;
 }
 
+function stopCountdown({ reset = true } = {}) {
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  if (reset) {
+    countdown = TIMER_DURATION;
+  }
+  syncTimerDisplay();
+}
+
 function beginCountdown() {
-  clearInterval(timerHandle);
-  timerHandle = null;
+  stopCountdown();
   if (fullTrackMode) {
-    syncTimerDisplay();
     return;
   }
-  countdown = TIMER_DURATION;
   timerHandle = setInterval(async () => {
     countdown -= 1;
     syncTimerDisplay();
@@ -742,6 +751,17 @@ function normalizeToUriOrId(text) {
   }
 }
 
+function prepareTrackForManualStart() {
+  stopCountdown();
+  Promise.resolve(player?.pause?.()).catch(() => {});
+  releaseWakeLock();
+  setVibeActive(false);
+  setStatus(SCAN_READY_MESSAGE);
+  if (scannerStatus) {
+    scannerStatus.textContent = SCAN_READY_MESSAGE;
+  }
+}
+
 async function playFromScan(parsed) {
   if (parsed.type === 'uri') {
     currentUri = parsed.value;
@@ -755,14 +775,7 @@ async function playFromScan(parsed) {
         window.history.replaceState(null, '', url.toString());
       }
     }
-    try {
-      await startAfterEnsureDevice();
-      beginCountdown();
-      ensureWakeLock().catch(() => {});
-      setVibeActive(true);
-    } catch (_) {
-      // status already handled
-    }
+    prepareTrackForManualStart();
     return;
   }
   if (parsed.type === 'id') {
@@ -779,14 +792,7 @@ async function playFromScan(parsed) {
           window.history.replaceState(null, '', url.toString());
         }
       }
-      try {
-        await startAfterEnsureDevice();
-        beginCountdown();
-        ensureWakeLock().catch(() => {});
-        setVibeActive(true);
-      } catch (_) {
-        // status already handled
-      }
+      prepareTrackForManualStart();
     } else {
       setStatus(`ID ${parsed.value} introuvable dans tracks.json`);
       if (scannerStatus) {

@@ -1,5 +1,5 @@
 {
-  "name": "hitster_jordan",
+  "name": "hitster_Movie Only",
   "version": "1.0.0",
   "description": "- Compte **Spotify Premium** (DJ) - **Spotify Developer**: créer une app et récupérer `Client ID` - **Vercel** (gratuit) pour le backend OAuth - **GitHub Pages** pour le frontend",
   "main": "app.js",

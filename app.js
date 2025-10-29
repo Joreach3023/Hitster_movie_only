@@ -1,5 +1,5 @@
 // ------- Config -------
-const API_BASE = 'https://hitster-jordan-oexi.vercel.app';
+const API_BASE = 'https://hitster-movie-only.vercel.app';
 const TRACKS_JSON = './tracks.json';
 const FULL_PLAYBACK_STORAGE_KEY = 'hitster_full_playback';
 const TIMER_DURATION = 30;
